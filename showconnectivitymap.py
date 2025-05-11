@@ -1,22 +1,21 @@
-# Worldmap network connectivity
+# Worldmap IP location display
 
 # Imports
-from scapy.all import *
-from scapy.layers.http import HTTPRequest # import HTTP packet
 import requests
-
-from termcolor import colored
-
 import os
 import sys
-
-from threading import Thread, Lock
-
-import worldmap
-
 import json
-
 import time
+import argparse
+import worldmap
+import shutil
+
+# Rich imports
+from rich.console import Console
+from rich.panel import Panel
+from rich.text import Text
+from rich.layout import Layout
+from rich import box
 
 ###
 # LAT (Y): 86 (up) -86 (down)
@@ -29,201 +28,191 @@ lonRange = 180
 worldMap = None
 curSize = (-1, -1)
 
-ipGeos = []
-activePackets = []
+paddingFix = (-5, -13)  # Geo coords, fixes worldmap placement
+console = Console()
 
-paddingFix = (-5, -13) # Geo coords, fixes the worldmap placement
-
-bogonIPs = []
-externalIP = ""
-
-class Packet:
-    src = ""
-    dst = ""
-    geoFrom = (0, 0)
-    geoTo = (0, 0)
-    pct = 0
-    size = 0 # in ascii (= ceil(KB / 100))
-    type = "tcp" # "udp", etc
-
-def replace_str_index(text,index=0,replacement=''):
+def replace_str_index(text, index=0, replacement=''):
     return "{}{}{}".format(text[:int(index)], replacement, text[int(index)+1:])
 
-def get_geolocation(ip):
-    global externalIP
-    global ipGeos
-    global bogonIPs
-
-    # Replace internal IP with external if applicable
-    for bogonIP in bogonIPs:
-        if ip == bogonIP:
-            ip = externalIP
-            break
-
-    # Check if we already have this in cache
-    for entry in ipGeos:
-        if entry[0] == ip:
-            return (entry[1][0] + paddingFix[0], entry[1][1] + paddingFix[1])
-
-    # Fetch geo from this site
-    url = "https://ipinfo.io/{}/json".format(ip)
-    r = requests.get(url)
-    data = json.loads(r.content.decode("utf-8"))
-
-    # Check if this is a private IP address. If so, skip it.
-    if "bogon" in data:
-        if externalIP == "":
-            externalIP = requests.get("https://f13rce.net/ip.php").content.decode("utf-8")
-
-        bogonIPs.append(ip)
-        return get_geolocation(externalIP)
-
-    if "Rate limit exceeded" in data:
-        print("It appears that our rate limit has exceeded. :(")
-        return None
-
-    if not data.get("loc"):
-        return None
-
-    data = data["loc"].split(",")
-    data = (float(data[0]), float(data[1]))
-
-    # Add to cache for next time
-    ipGeos.append( (ip, data) )
-
-    return (data[0] + paddingFix[0], data[1] + paddingFix[1])
+def get_external_ip_location():
+    try:
+        # Get external IP
+        external_ip = requests.get("https://f13rce.net/ip.php", timeout=5).content.decode("utf-8").strip()
+        
+        # Get geolocation data for the IP
+        url = f"https://ipinfo.io/{external_ip}/json"
+        r = requests.get(url, timeout=5)
+        data = json.loads(r.content.decode("utf-8"))
+        
+        if not data.get("loc"):
+            return None, None, None, None
+        
+        loc = data["loc"].split(",")
+        geo = (float(loc[0]), float(loc[1]))
+        
+        # Add padding fix
+        adjusted_geo = (geo[0] + paddingFix[0], geo[1] + paddingFix[1])
+        
+        # Get city and country
+        city = data.get("city", "Unknown")
+        country = data.get("country", "Unknown")
+        
+        return external_ip, adjusted_geo, city, country
+    except Exception as e:
+        console.print(f"[bold red]Error fetching IP information:[/bold red] {e}")
+        return None, None, None, None
 
 def geo_to_ascii(geo):
     global worldMap
-    if worldMap == None:
+    if worldMap is None:
         return None
 
-    lat = int(len(worldMap) - len(worldMap) / (latRange * 2) * (geo[0] + latRange))
-    lon = int(len(worldMap[0]) / (lonRange * 2) * (geo[1] + lonRange))
+    try:
+        lat = int(len(worldMap) - len(worldMap) / (latRange * 2) * (geo[0] + latRange))
+        lon = int(len(worldMap[0]) / (lonRange * 2) * (geo[1] + lonRange))
+        
+        # Ensure coordinates are within bounds
+        lat = max(0, min(lat, len(worldMap) - 1))
+        lon = max(0, min(lon, len(worldMap[0]) - 1))
+        
+        return (lat, lon)
+    except Exception as e:
+        console.print(f"[bold red]Error converting geo coordinates:[/bold red] {e}")
+        return (0, 0)
 
-    return (lat, lon)
+def get_terminal_size():
+    try:
+        # First try shutil which is more reliable
+        columns, rows = shutil.get_terminal_size()
+        return rows, columns
+    except Exception as e:
+        try:
+            # Fallback to os.get_terminal_size
+            columns, rows = os.get_terminal_size()
+            return rows, columns
+        except Exception as e:
+            # If all else fails, use a default size
+            console.print(f"[bold yellow]Warning: Could not determine terminal size, using default.[/bold yellow] Error: {e}")
+            return 24, 80
 
-def draw(refreshRate, packetSpeed):
+def draw(refreshRate=10.0, ip_check_interval=60):
     global curSize
     global worldMap
+    global console
 
     refreshTime = 1.0 / refreshRate
-
-    while True:
-        rows, cols = os.popen('stty size', 'r').read().split()
-        rows = int(rows)
-        cols = int(cols)
-        if curSize[0] != rows or curSize[1] != cols:
-            curSize = (rows, cols)
-            worldMap = worldmap.covertImageToAscii("worldmap.png", cols, 0.43, False)
-
-        worldMapTemp = worldMap.copy()
-        toRemove = []
-        for i in range(len(activePackets)):
-            activePackets[i].pct += packetSpeed
-
-            if activePackets[i].pct >= 100:
-                toRemove.append(i)
-                continue
-
-            # Packet
-            deltaLat = activePackets[i].geoTo[0] - activePackets[i].geoFrom[0]
-            deltaLon = activePackets[i].geoTo[1] - activePackets[i].geoFrom[1]
-            newGeoLat = activePackets[i].geoFrom[0] + (deltaLat / 100 * activePackets[i].pct)
-            newGeoLon = activePackets[i].geoFrom[1] + (deltaLon / 100 * activePackets[i].pct)
-            pos = geo_to_ascii((newGeoLat, newGeoLon))
-            worldMapTemp[pos[0]] = replace_str_index(worldMapTemp[pos[0]], pos[1], "#")
-
-            # DST
-            pos = geo_to_ascii(activePackets[i].geoFrom)
-            worldMapTemp[pos[0]] = replace_str_index(worldMapTemp[pos[0]], pos[1], "@")
-
-            # DST
-            pos = geo_to_ascii(activePackets[i].geoTo)
-            worldMapTemp[pos[0]] = replace_str_index(worldMapTemp[pos[0]], pos[1], "@")
-
-        i = len(toRemove) - 1
-        while i >= 0:
-            activePackets.pop(i)
-            i -= 1
-
-        # Prepare what to print
-        toWrite = ""
-        for row in worldMapTemp:
-            for char in row:
-                if char == "#":
-                    toWrite += colored(char, "red")
-                elif char == "@":
-                    toWrite += colored(char, "yellow")
-                else:
-                    toWrite += colored(char, "green")
-            toWrite += "\n"
-
-        # Clear screen and print
-        os.system('cls' if os.name == 'nt' else 'clear')
-        os.write(1, toWrite.encode())
-        sys.stdout.flush()
-
-        # Until next time!
-        time.sleep(refreshTime)
-
-def sniff_packets(iface=None):
-    """
-    Sniff packets with `iface`, if None (default), then the
-    Scapy's default interface is used
-    """
-    if iface:
-        sniff(filter="", prn=process_packet, iface=iface, store=False)
-    else:
-        # sniff with default interface
-        sniff(filter="", prn=process_packet, store=False)
-
-def process_packet(packet):
-    """
-    This function is executed whenever a packet is sniffed
-    """
-
-    # Sometimes the [IP] header is not found - then we can skip it.
-    p = Packet()
-    p.src = packet[IP].src
-    p.dst = packet[IP].dst
-    p.geoFrom = get_geolocation(p.src)
-    p.geoTo = get_geolocation(p.dst)
-    p.pct = 0
-    p.size = 1 #packet[IP].size / 100 #or something...
-
-    if p.geoFrom == None or p.geoTo == None:
+    
+    # Initialize IP data
+    ip, geo, city, country = get_external_ip_location()
+    if geo is None:
+        console.print("[bold red]Could not determine your location.[/bold red]")
         return
+    
+    last_ip_check = time.time()
+    
+    while True:
+        try:
+            # Check if it's time to refresh the IP data
+            current_time = time.time()
+            if current_time - last_ip_check > ip_check_interval:
+                new_ip, new_geo, new_city, new_country = get_external_ip_location()
+                if new_ip and new_ip != ip:
+                    ip, geo, city, country = new_ip, new_geo, new_city, new_country
+                    console.print(f"[bold green]IP changed to:[/bold green] {ip}")
+                last_ip_check = current_time
+            
+            # Get terminal size
+            terminal_height, terminal_width = get_terminal_size()
+            
+            if curSize[0] != terminal_height or curSize[1] != terminal_width:
+                curSize = (terminal_height, terminal_width)
+                try:
+                    worldMap = worldmap.convertImageToAscii("worldmap.png", terminal_width, 0.43, False)
+                except AttributeError:
+                    # If the first attempt fails, try the alternative function name
+                    try:
+                        console.print("[bold yellow]Warning: Using alternative function name 'covertImageToAscii'[/bold yellow]")
+                        worldMap = worldmap.covertImageToAscii("worldmap.png", terminal_width, 0.43, False)
+                    except Exception as e:
+                        console.print(f"[bold red]Error creating world map:[/bold red] {e}")
+                        time.sleep(5)
+                        continue
+                except Exception as e:
+                    console.print(f"[bold red]Error creating world map:[/bold red] {e}")
+                    time.sleep(5)
+                    continue
 
-    global activePackets
-    activePackets.append(p)
+            worldMapTemp = worldMap.copy()
+            
+            # Mark location on the map
+            pos = geo_to_ascii(geo)
+            if pos and 0 <= pos[0] < len(worldMapTemp) and 0 <= pos[1] < len(worldMapTemp[pos[0]]):
+                worldMapTemp[pos[0]] = replace_str_index(worldMapTemp[pos[0]], pos[1], "@")
+
+            # Create the map text
+            map_text = Text()
+            for row in worldMapTemp:
+                for char in row:
+                    if char == "@":
+                        map_text.append(char, style="bold yellow")
+                    else:
+                        map_text.append(char, style="green")
+                map_text.append("\n")
+
+            # Create layout
+            layout = Layout()
+            layout.split(
+                Layout(name="header", size=3),
+                Layout(name="main")
+            )
+            
+            # Create header with IP info
+            header_text = Text.from_markup(
+                f"[bold cyan]External IP:[/bold cyan] [yellow]{ip}[/yellow]\n"
+                f"[bold cyan]Location:[/bold cyan] [yellow]{city}, {country}[/yellow]\n"
+                f"[dim](Updates every {ip_check_interval} seconds)[/dim]"
+            )
+            layout["header"].update(Panel(header_text, box=box.ROUNDED))
+            
+            # Update main content with map
+            layout["main"].update(Panel(map_text, box=box.ROUNDED))
+            
+            # Clear screen and render
+            os.system('cls' if os.name == 'nt' else 'clear')
+            console.print(layout)
+            
+            # Until next time!
+            time.sleep(refreshTime)
+            
+        except Exception as e:
+            console.print(f"[bold red]An error occurred:[/bold red] {e}")
+            time.sleep(5)  # Wait a bit before retrying
 
 if __name__ == "__main__":
-    import argparse
-    parser = argparse.ArgumentParser(description="A scalable tool to visually display network traffic in form of an ASCII world map that listens via your network interface.\n" \
-                                                 + "Please ensure that you have permissions to read out the traffic of the used network interface.")
-    parser.add_argument("-i", "--iface", help="Specific network interface to use. Default = Every interface")
-
+    parser = argparse.ArgumentParser(description="A tool to display your external IP location on an ASCII world map.")
     parser.add_argument("-r", "--refreshrate", help="Refresh rate of the worldmap. The value is X times per second. Default = 10")
-    parser.add_argument("-s", "--speed", help="Speed in percentage per refresh of the packets traveling over this worldmap. The refresh rate alters this as well. Default = 3")
+    parser.add_argument("-i", "--ipcheckinterval", help="How often to check for IP changes (in seconds). Default = 60")
 
     # parse arguments
     args = parser.parse_args()
-    iface = args.iface
 
-    rr = 10.0
-    if args.refreshrate:
-        if float(args.refreshrate) == 0:
-            sys.exit("Refresh rate cannot be 0! This will cause a division by 0.")
-        rr = float(args.refreshrate)
+    try:
+        rr = 10.0
+        if args.refreshrate:
+            if float(args.refreshrate) == 0:
+                console.print("[bold red]Refresh rate cannot be 0! This will cause a division by 0.[/bold red]")
+                sys.exit(1)
+            rr = float(args.refreshrate)
 
-    spd = 3.0
-    if args.speed:
-        spd = float(args.speed)
+        ip_interval = 60
+        if args.ipcheckinterval:
+            ip_interval = int(args.ipcheckinterval)
 
-    # Start sniffer
-    sniff_thread = Thread(target=sniff_packets, args=(iface,))
-    sniff_thread.start()
-
-    # Draw results in the meantime
-    draw(rr, spd)
+        # Draw the map with your IP location
+        draw(rr, ip_interval)
+    except KeyboardInterrupt:
+        console.print("[bold cyan]Exiting...[/bold cyan]")
+        sys.exit(0)
+    except Exception as e:
+        console.print(f"[bold red]Fatal error:[/bold red] {e}")
+        sys.exit(1)
