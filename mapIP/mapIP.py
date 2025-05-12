@@ -5,7 +5,8 @@ import shutil
 import sys
 import time
 import unicodedata
-from importlib import resources as impresources
+import importlib.resources as impresources
+from typing import Tuple, Optional, Union
 
 import requests
 from rich import box
@@ -101,8 +102,8 @@ def replace_str_index(text: str, index: int = 0, replacement: str = '') -> str:
     """
     return f"{text[:int(index)]}{replacement}{text[int(index)+1:]}"
 
-def get_external_ip_location() -> tuple[str | None, tuple[float, float] | None,
-                                       str | None, str | None, str | None]:
+def get_external_ip_location() -> Tuple[Optional[str], Optional[Tuple[float, float]], 
+                                       Optional[str], Optional[str], Optional[str]]:
     """
     Get external IP address and geolocation information.
 
@@ -137,7 +138,7 @@ def get_external_ip_location() -> tuple[str | None, tuple[float, float] | None,
         console.print(f"[bold red]Error fetching IP information:[/bold red] {e}")
         return None, None, None, None, None
 
-def geo_to_ascii(geo: tuple[float, float], map_height: int, map_width: int) -> tuple[int, int]:
+def geo_to_ascii(geo: Tuple[float, float], map_height: int, map_width: int) -> Tuple[int, int]:
     """
     Convert geographical coordinates to ASCII map coordinates.
 
@@ -174,7 +175,7 @@ def geo_to_ascii(geo: tuple[float, float], map_height: int, map_width: int) -> t
         console.print(f"[bold red]Error converting geo coordinates:[/bold red] {e}")
         return (0, 0)
 
-def get_terminal_size() -> tuple[int, int]:
+def get_terminal_size() -> Tuple[int, int]:
     """
     Get the current terminal size.
 
@@ -295,7 +296,7 @@ def draw(refreshRate: float = 10.0, ip_check_interval: int = 60) -> None:
             # Calculate effective width for the map content
             effective_width = calculate_effective_width(terminal_width)
 
-            mapFile = impresources.files() / "map.png"
+            mapFile = impresources.files("mapIP") / "map.png"
 
             # Check if terminal size changed
             if curSize[0] != terminal_height or curSize[1] != terminal_width:
