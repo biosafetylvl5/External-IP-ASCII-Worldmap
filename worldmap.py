@@ -12,8 +12,9 @@ from PIL import Image
 gscale1 = "$B%8&WM*oahkbdpqwmZO0QLCJUYXzcvunxrjft/\|()1{}[]?-_+~<>i!lI;:,\"^`'. "
 
 # 10 levels of gray
-#gscale2 = '@%*+=_-:. '
-gscale2 = gscale1
+gscale2 = '@%*+=_-:. '
+gscale2 = '@%*+=_-: '
+#gscale2 = gscale1
 
 def getAverageL(image):
 
