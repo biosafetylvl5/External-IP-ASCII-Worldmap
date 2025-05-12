@@ -5,6 +5,7 @@ import shutil
 import sys
 import time
 import unicodedata
+from importlib import resources as impresources
 
 import requests
 from rich import box
@@ -13,7 +14,7 @@ from rich.layout import Layout
 from rich.panel import Panel
 from rich.text import Text
 
-import worldmap
+import mapIP.worldmap as worldmap
 
 ###
 # LAT (Y): 90 (up) -90 (down)
@@ -294,6 +295,8 @@ def draw(refreshRate: float = 10.0, ip_check_interval: int = 60) -> None:
             # Calculate effective width for the map content
             effective_width = calculate_effective_width(terminal_width)
 
+            mapFile = impresources.files() / "map.png"
+
             # Check if terminal size changed
             if curSize[0] != terminal_height or curSize[1] != terminal_width:
                 curSize = (terminal_height, terminal_width)
@@ -304,11 +307,11 @@ def draw(refreshRate: float = 10.0, ip_check_interval: int = 60) -> None:
                     aspect_ratio = ((terminal_height - 5) / (effective_width)) * 2.2
 
                     # Use the correct function name from the worldmap module
-                    worldMap = worldmap.convertImageToAscii("map.png", effective_width, aspect_ratio, False)
+                    worldMap = worldmap.convertImageToAscii(mapFile, effective_width, aspect_ratio, False)
                 except AttributeError:
                     # If the first attempt fails, try the alternative function name
                     try:
-                        worldMap = worldmap.covertImageToAscii("map.png", effective_width, aspect_ratio, False)
+                        worldMap = worldmap.covertImageToAscii(mapFile, effective_width, aspect_ratio, False)
                     except Exception as e:
                         console.print(f"[bold red]Error creating world map:[/bold red] {e}")
                         time.sleep(5)
@@ -403,7 +406,7 @@ def draw(refreshRate: float = 10.0, ip_check_interval: int = 60) -> None:
             console.print(f"[bold red]An error occurred:[/bold red] {e}")
             time.sleep(5)  # Wait a bit before retrying
 
-if __name__ == "__main__":
+def runFromCLI():
     parser = argparse.ArgumentParser(description="A tool to display your external IP location on an ASCII world map.")
     parser.add_argument("-r", "--refreshrate", help="Refresh rate of the worldmap. The value is X times per second. Default = 10")
     parser.add_argument("-i", "--ipcheckinterval", help="How often to check for IP changes (in seconds). Default = 60")
@@ -432,3 +435,6 @@ if __name__ == "__main__":
     except Exception as e:
         console.print(f"[bold red]Fatal error:[/bold red] {e}")
         sys.exit(1)
+
+if __name__ == "__main__":
+    runFromCLI()
