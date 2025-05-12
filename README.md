@@ -4,13 +4,17 @@ A scalable tool to visually display your external IPs location via your CLI. Bui
 
 # Usage
 
-After cloning, install the required packages:
+Install from GitHub:
 
-``pip3 install -r requirements.txt --user``
+``` bash
+pip3 install --user git+https://github.com/biosafetylvl5/External-IP-ASCII-Worldmap.git
+```
 
-Running the script:
+or after cloning, install the required packages:
 
-``python3 mapIP.py``
+``pip3 install . --user``
+
+Run the script with `mapIP`.
 
 # Comments
 
