@@ -1,3 +1,41 @@
+"""
+mapIP - ASCII World Map IP Geolocation Visualizer
+
+This module provides functionality to display your external IP address location
+on an ASCII world map in the terminal. It fetches your external IP address,
+determines its geographical location, and renders a world map with your position
+marked on it. It's not great code but it works. No shade to the OG author,
+the flack is my own.
+
+It provides:
+- Real-time display of external IP address and location
+- Visual representation of your location on a world map
+- Automatic adjustment to terminal size
+- Configurable refresh rate and IP check interval
+- Proper handling of Unicode and wide characters
+
+The map is rendered using ASCII characters with your location marked as 'X' in red.
+The display automatically adjusts to your terminal size and updates at configurable
+intervals.
+
+Usage:
+    To run from command line:
+    $ python -m mapIP [options]
+
+    Options:
+        -r, --refreshrate     Refresh rate of the display in times per second (default: 10)
+        -i, --ipcheckinterval How often to check for IP changes in seconds (default: 60)
+
+    To use as a module:
+    >>> from mapIP import main
+    >>> main.draw(refreshRate=10.0, ip_check_interval=60)
+
+Dependencies:
+    - requests: For fetching IP and geolocation data
+    - rich: For terminal rendering and formatting
+    - PIL (via worldmap module): For converting the map image to ASCII
+"""
+
 import argparse
 import json
 import os
