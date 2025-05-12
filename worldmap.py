@@ -1,26 +1,21 @@
 # Python code to convert an image to ASCII image.
-import sys, random, argparse
-import numpy as np
-import math
+import sys
 
+import numpy as np
 from PIL import Image
 
 # gray scale level values from:
 # http://paulbourke.net/dataformats/asciiart/
 
 # 70 levels of gray
-gscale1 = "$B%8&WM*oahkbdpqwmZO0QLCJUYXzcvunxrjft/\|()1{}[]?-_+~<>i!lI;:,\"^`'. "
+gscale1 = "$B%8&WM*oahkbdpqwmZO0QLCJUYXzcvunxrjft/\\|()1{}[]?-_+~<>i!lI;:,\"^`'. "
 
 # 10 levels of gray
 gscale2 = '@%*+=_-:. '
 gscale2 = '@%*+=_-: '
-#gscale2 = gscale1
 
 def getAverageL(image):
-
-    """
-    Given PIL Image, return average value of grayscale value
-    """
+    """Given PIL Image, return average value of grayscale value."""
     # get image as numpy array
     im = np.array(image)
 
@@ -31,9 +26,7 @@ def getAverageL(image):
     return np.average(im.reshape(w*h))
 
 def covertImageToAscii(fileName, cols, scale, moreLevels):
-    """
-    Given Image and dims (rows, cols) returns an m*n list of Images
-    """
+    """Given Image and dims (rows, cols) returns an m*n list of Images."""
     # declare globals
     global gscale1, gscale2
 
@@ -42,7 +35,6 @@ def covertImageToAscii(fileName, cols, scale, moreLevels):
 
     # store dimensions
     W, H = image.size[0], image.size[1]
-    #print("input image dims: %d x %d" % (W, H))
 
     # compute width of tile
     w = W/cols
@@ -53,13 +45,10 @@ def covertImageToAscii(fileName, cols, scale, moreLevels):
     # compute number of rows
     rows = int(H/h)
 
-    #print("cols: %d, rows: %d" % (cols, rows))
-    #print("tile dims: %d x %d" % (w, h))
 
     # check if image size is too small
     if cols > W or rows > H:
-        #print("Image too small for specified cols!")
-        exit(0)
+        sys.exit(0)
 
     # ascii image is a list of character strings
     aimg = []
